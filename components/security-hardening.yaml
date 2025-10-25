@@ -1,0 +1,37 @@
+name: SecurityHardeningComponent
+description: Apply security hardening configurations
+schemaVersion: 1.0
+
+phases:
+  - name: build
+    steps:
+      - name: UpdatePackages
+        action: ExecuteBash
+        inputs:
+          commands:
+            - yum update -y --security
+            
+      - name: ConfigureFirewall
+        action: ExecuteBash
+        inputs:
+          commands:
+            - systemctl enable firewalld
+            - systemctl start firewalld
+            - firewall-cmd --permanent --add-service=http
+            - firewall-cmd --permanent --add-service=https
+            - firewall-cmd --reload
+            
+      - name: SecureSSH
+        action: ExecuteBash
+        inputs:
+          commands:
+            - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+            - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+            
+  - name: test
+    steps:
+      - name: TestFirewall
+        action: ExecuteBash
+        inputs:
+          commands:
+            - systemctl is-active firewalld

@@ -1,0 +1,56 @@
+name: Update Image Builder
+on:
+  push:
+    branches: [main]
+    paths: ['components/**', 'recipes/**']
+  repository_dispatch:
+    types: [trigger-imagebuilder]
+
+jobs:
+  update-imagebuilder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+      
+      - name: Get changed files
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "files=components/ recipes/" >> $GITHUB_OUTPUT
+          else
+            echo "files=$(git diff --name-only HEAD^ HEAD | grep -E '\.(yaml|yml)$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
+      
+      - name: Update Image Builder Components
+        run: |
+          for file in ${{ steps.changes.outputs.files }}; do
+            if [[ $file == components/* ]] && [[ $file == *.yaml ]]; then
+              echo "Creating component from: $file"
+              aws imagebuilder create-component --cli-input-yaml file://$file || echo "Component creation failed or already exists"
+            fi
+          done
+      
+      - name: Update Image Builder Recipes
+        run: |
+          for file in ${{ steps.changes.outputs.files }}; do
+            if [[ $file == recipes/* ]] && [[ $file == *.yaml ]]; then
+              echo "Creating recipe from: $file"
+              aws imagebuilder create-image-recipe --cli-input-yaml file://$file || echo "Recipe creation failed or already exists"
+            fi
+          done
+      
+      - name: Trigger Image Builder Pipeline
+        run: |
+          echo "Triggering Image Builder pipeline..."
+          aws imagebuilder start-image-pipeline-execution \
+            --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:372595555477:image-pipeline/sasi-demo-advanced" || echo "Pipeline trigger failed"
