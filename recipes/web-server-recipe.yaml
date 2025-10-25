@@ -1,17 +1,13 @@
-name: WebServerRecipe
+name: sasi-demo-advanced
 description: Recipe for web server AMI with security hardening
-version: 1.0.0
+version: 2.0.1
 parentImage: arn:aws:imagebuilder:ap-southeast-2:aws:image/amazon-linux-2-x86/x.x.x
 components:
-  - componentArn: arn:aws:imagebuilder:ap-southeast-2:372595555477:component/WebServerComponent/1.0.0
-  - componentArn: arn:aws:imagebuilder:ap-southeast-2:372595555477:component/SecurityHardeningComponent/1.0.0
+  - componentArn: arn:aws:imagebuilder:ap-southeast-2:372595555477:component/sasi-demo-advanced/2.0.0
+  - componentArn: arn:aws:imagebuilder:ap-southeast-2:372595555477:component/securityhardeningcomponent/1.0.0
 blockDeviceMappings:
   - deviceName: /dev/xvda
     ebs:
       deleteOnTermination: true
-      volumeSize: 20
+      volumeSize: 100
       volumeType: gp3
-tags:
-  Environment: production
-  Team: devops
-  Purpose: web-server
