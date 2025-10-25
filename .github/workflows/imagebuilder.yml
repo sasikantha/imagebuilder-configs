@@ -13,7 +13,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
       
       - name: Get changed files
         id: changes
@@ -24,28 +31,76 @@ jobs:
             echo "files=$(git diff --name-only HEAD^ HEAD | grep -E '\.(yaml|yml)$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
           fi
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-southeast-2
-      
       - name: Update Image Builder Components
         run: |
           for file in ${{ steps.changes.outputs.files }}; do
             if [[ $file == components/* ]] && [[ $file == *.yaml ]]; then
-              echo "Creating component from: $file"
-              aws imagebuilder create-component --cli-input-yaml file://$file || echo "Component creation failed or already exists"
-            fi
-          done
-      
-      - name: Update Image Builder Recipes
-        run: |
-          for file in ${{ steps.changes.outputs.files }}; do
-            if [[ $file == recipes/* ]] && [[ $file == *.yaml ]]; then
-              echo "Creating recipe from: $file"
-              aws imagebuilder create-image-recipe --cli-input-yaml file://$file || echo "Recipe creation failed or already exists"
+              echo "Processing component: $file"
+              
+              # Extract component name from filename
+              component_name=$(basename "$file" .yaml)
+              echo "Component name: $component_name"
+              
+              # Get existing component versions
+              existing_versions=$(aws imagebuilder list-component-build-versions \
+                --component-version-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:component/$component_name/*" \
+                --query 'componentSummaryList[*].version' --output text 2>/dev/null || echo "")
+              
+              # Determine next version
+              if [ -z "$existing_versions" ]; then
+                next_version="1.0.0"
+              else
+                # Get the latest version and increment patch number
+                latest_version=$(echo "$existing_versions" | tr ' ' '\n' | sort -V | tail -1)
+                echo "Latest version: $latest_version"
+                
+                # Extract patch number and increment
+                major=$(echo $latest_version | cut -d. -f1)
+                minor=$(echo $latest_version | cut -d. -f2)
+                patch=$(echo $latest_version | cut -d. -f3)
+                next_patch=$((patch + 1))
+                next_version="$major.$minor.$next_patch"
+              fi
+              
+              echo "Next version: $next_version"
+              
+              # Update version in component file
+              sed -i "s/schemaVersion: .*/schemaVersion: $next_version/" "$file"
+              
+              # Create new component version
+              echo "Creating component version $next_version"
+              aws imagebuilder create-component \
+                --name "$component_name" \
+                --semantic-version "$next_version" \
+                --description "Updated $(basename $component_name) component" \
+                --change-description "Automated update from GitHub" \
+                --platform "Linux" \
+                --data file://"$file" || echo "Component creation failed"
+              
+              # Update recipe to use new component version
+              recipe_file="recipes/${component_name}-recipe.yaml"
+              if [ -f "$recipe_file" ]; then
+                echo "Updating recipe to use component version $next_version"
+                # Update component ARN in recipe to use new version
+                sed -i "s|arn:aws:imagebuilder:ap-southeast-2:[0-9]*:component/$component_name/[0-9.]*|arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:component/$component_name/$next_version|g" "$recipe_file"
+                
+                # Create new recipe version
+                recipe_name="${component_name}-recipe"
+                recipe_version=$(date +%Y.%m.%d.%H%M)
+                
+                aws imagebuilder create-image-recipe \
+                  --name "$recipe_name" \
+                  --semantic-version "$recipe_version" \
+                  --description "Updated recipe for $component_name" \
+                  --parent-image "arn:aws:imagebuilder:ap-southeast-2:aws:image/amazon-linux-2-x86/x.x.x" \
+                  --components componentArn="arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:component/$component_name/$next_version" \
+                  --block-device-mappings deviceName="/dev/xvda",ebs='{volumeSize=8,deleteOnTermination=true}' || echo "Recipe creation failed"
+                
+                # Update pipeline to use new recipe
+                aws imagebuilder update-image-pipeline \
+                  --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:image-pipeline/sasi-demo-advanced" \
+                  --image-recipe-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:image-recipe/$recipe_name/$recipe_version" || echo "Pipeline update failed"
+              fi
             fi
           done
       
@@ -53,4 +108,12 @@ jobs:
         run: |
           echo "Triggering Image Builder pipeline..."
           aws imagebuilder start-image-pipeline-execution \
-            --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:372595555477:image-pipeline/sasi-demo-advanced" || echo "Pipeline trigger failed"
+            --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:image-pipeline/sasi-demo-advanced" || echo "Pipeline trigger failed"
+      
+      - name: Commit version updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git diff --staged --quiet || git commit -m "Auto-update component versions [skip ci]"
+          git push || echo "No changes to push"
