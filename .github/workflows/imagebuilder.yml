@@ -43,7 +43,7 @@ jobs:
               
               # Get existing component versions
               existing_versions=$(aws imagebuilder list-component-build-versions \
-                --component-version-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:component/$component_name/*" \
+                --component-version-arn "arn:aws:imagebuilder:ap-southeast-2:372595555477:component/$component_name/*" \
                 --query 'componentSummaryList[*].version' --output text 2>/dev/null || echo "")
               
               # Determine next version
@@ -82,7 +82,7 @@ jobs:
               if [ -f "$recipe_file" ]; then
                 echo "Updating recipe to use component version $next_version"
                 # Update component ARN in recipe to use new version
-                sed -i "s|arn:aws:imagebuilder:ap-southeast-2:[0-9]*:component/$component_name/[0-9.]*|arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:component/$component_name/$next_version|g" "$recipe_file"
+                sed -i "s|arn:aws:imagebuilder:ap-southeast-2:[0-9]*:component/$component_name/[0-9.]*|arn:aws:imagebuilder:ap-southeast-2:372595555477:component/$component_name/$next_version|g" "$recipe_file"
                 
                 # Create new recipe version
                 recipe_name="${component_name}-recipe"
@@ -93,13 +93,13 @@ jobs:
                   --semantic-version "$recipe_version" \
                   --description "Updated recipe for $component_name" \
                   --parent-image "arn:aws:imagebuilder:ap-southeast-2:aws:image/amazon-linux-2-x86/x.x.x" \
-                  --components componentArn="arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:component/$component_name/$next_version" \
+                  --components componentArn="arn:aws:imagebuilder:ap-southeast-2:372595555477:component/$component_name/$next_version" \
                   --block-device-mappings deviceName="/dev/xvda",ebs='{volumeSize=8,deleteOnTermination=true}' || echo "Recipe creation failed"
                 
                 # Update pipeline to use new recipe
                 aws imagebuilder update-image-pipeline \
-                  --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:image-pipeline/sasi-demo-advanced" \
-                  --image-recipe-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:image-recipe/$recipe_name/$recipe_version" || echo "Pipeline update failed"
+                  --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:372595555477:image-pipeline/sasi-demo-advanced" \
+                  --image-recipe-arn "arn:aws:imagebuilder:ap-southeast-2:372595555477:image-recipe/$recipe_name/$recipe_version" || echo "Pipeline update failed"
               fi
             fi
           done
@@ -108,7 +108,7 @@ jobs:
         run: |
           echo "Triggering Image Builder pipeline..."
           aws imagebuilder start-image-pipeline-execution \
-            --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:${{ github.repository_owner }}:image-pipeline/sasi-demo-advanced" || echo "Pipeline trigger failed"
+            --image-pipeline-arn "arn:aws:imagebuilder:ap-southeast-2:372595555477:image-pipeline/sasi-demo-advanced" || echo "Pipeline trigger failed"
       
       - name: Commit version updates
         run: |
